@@ -491,7 +491,7 @@ func TestMaxConnections(t *testing.T) {
 
 	// Both messages should be received
 	receivedMessages := make(map[string]bool)
-	for j := 0; j < 2; j++ {
+	for range 2 {
 		select {
 		case e := <-entryChan:
 			receivedMessages[e.Body.(string)] = true
@@ -529,7 +529,7 @@ func TestMaxConnectionsZeroUnlimited(t *testing.T) {
 
 	// Open many connections and ensure they all work
 	conns := make([]net.Conn, 5)
-	for j := 0; j < 5; j++ {
+	for j := range 5 {
 		conn, dialErr := net.Dial("tcp", tcpInput.listener.Addr().String())
 		require.NoError(t, dialErr)
 		defer conn.Close()
@@ -537,11 +537,11 @@ func TestMaxConnectionsZeroUnlimited(t *testing.T) {
 	}
 
 	for j, conn := range conns {
-		_, err = conn.Write([]byte(fmt.Sprintf("message%d\n", j)))
+		_, err = fmt.Fprintf(conn, "message%d\n", j)
 		require.NoError(t, err)
 	}
 
-	for j := 0; j < 5; j++ {
+	for range 5 {
 		select {
 		case <-entryChan:
 		case <-time.After(3 * time.Second):

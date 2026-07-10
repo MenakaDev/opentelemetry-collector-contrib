@@ -133,16 +133,16 @@ func (c Config) Build(set component.TelemetrySettings) (operator.Operator, error
 	}
 
 	if c.MaxConnections < 0 {
-		return nil, fmt.Errorf("invalid value for parameter 'max_connections', must be greater than or equal to 0")
+		return nil, errors.New("invalid value for parameter 'max_connections', must be greater than or equal to 0")
 	}
 
 	connectionIdleTimeout := DefaultConnectionIdleTimeout
-	if len(c.ConnectionIdleTimeout) > 0 {
-		if timeout, terr := time.ParseDuration(c.ConnectionIdleTimeout); terr == nil {
-			connectionIdleTimeout = timeout
-		} else {
-			return nil, fmt.Errorf("invalid 'connection_idle_timeout' value")
+	if c.ConnectionIdleTimeout != "" {
+		timeout, terr := time.ParseDuration(c.ConnectionIdleTimeout)
+		if terr != nil {
+			return nil, errors.New("invalid 'connection_idle_timeout' value")
 		}
+		connectionIdleTimeout = timeout
 	}
 
 	tb, err := metadata.NewTelemetryBuilder(set)
