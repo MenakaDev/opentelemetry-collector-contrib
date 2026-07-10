@@ -5,7 +5,7 @@ status:
   stability:
     beta: [logs]
   codeowners:
-    active: [djaglowski]
+    active: [andrzej-stencel]
 
 telemetry:
   metrics:
