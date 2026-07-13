@@ -104,7 +104,7 @@ func (i *Input) goListen(ctx context.Context) {
 			}
 			i.backoff.Reset()
 
-			// when there is a max connection set, it will check if connection exceeds max number and set a deadline
+			// when there is a max connection set, it will check if connection exceeds max number
 			if i.maxConnections > 0 {
 				// Check if max connections limit has been reached
 				// close connection, warn log and move on if maxed out
@@ -113,12 +113,15 @@ func (i *Input) goListen(ctx context.Context) {
 						zap.Int("max_connections", i.maxConnections),
 						zap.Int("current_connections", currConn),
 					)
+					i.recordRefusedConnection()
 					if cerr := conn.Close(); cerr != nil {
 						i.Logger().Debug("Failed to close connection", zap.Error(cerr))
 					}
 					continue
 				}
+			}
 
+			if i.connectionIdleTimeout > 0 {
 				if derr := conn.SetDeadline(time.Now().Add(i.connectionIdleTimeout)); derr != nil {
 					i.Logger().Error("Failed to set connection deadline", zap.Error(derr))
 					if cerr := conn.Close(); cerr != nil {
@@ -178,7 +181,7 @@ func (i *Input) goHandleMessages(ctx context.Context, conn net.Conn, cancel cont
 		scanner.Split(i.splitFunc)
 
 		for scanner.Scan() {
-			if i.maxConnections > 0 {
+			if i.connectionIdleTimeout > 0 {
 				if err := conn.SetDeadline(time.Now().Add(i.connectionIdleTimeout)); err != nil {
 					// error setting deadline is due to os.ErrDeadlineExceeded, connection is closing at this point
 					i.Logger().Debug("Failed to set connection deadline", zap.Error(err))
@@ -267,6 +270,16 @@ func (i *Input) recordActiveConnectionDelta(delta int64) {
 		i.tb.TCPInputActiveConnections.Add(
 			context.Background(),
 			delta,
+			metric.WithAttributes(attribute.String("port", i.address)),
+		)
+	}
+}
+
+func (i *Input) recordRefusedConnection() {
+	if i.tb != nil {
+		i.tb.TCPInputRefusedConnections.Add(
+			context.Background(),
+			1,
 			metric.WithAttributes(attribute.String("port", i.address)),
 		)
 	}

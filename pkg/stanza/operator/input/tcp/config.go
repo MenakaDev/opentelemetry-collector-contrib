@@ -34,9 +34,6 @@ const (
 	// DefaultMaxLogSize is the max buffer sized used
 	// if MaxLogSize is not set
 	DefaultMaxLogSize = 1024 * 1024
-
-	// DefaultConnectionIdleTimeout is the default timeout for idle connections.
-	DefaultConnectionIdleTimeout = time.Minute
 )
 
 func init() {
@@ -77,7 +74,7 @@ type BaseConfig struct {
 	TrimConfig            trim.Config             `mapstructure:",squash"`
 	SplitFuncBuilder      SplitFuncBuilder        `mapstructure:"-"`
 	MaxConnections        int                     `mapstructure:"max_connections,omitempty"`
-	ConnectionIdleTimeout string                  `mapstructure:"connection_idle_timeout,omitempty"`
+	ConnectionIdleTimeout time.Duration           `mapstructure:"connection_idle_timeout,omitempty"`
 }
 
 type SplitFuncBuilder func(enc encoding.Encoding) (bufio.SplitFunc, error)
@@ -136,15 +133,6 @@ func (c Config) Build(set component.TelemetrySettings) (operator.Operator, error
 		return nil, errors.New("invalid value for parameter 'max_connections', must be greater than or equal to 0")
 	}
 
-	connectionIdleTimeout := DefaultConnectionIdleTimeout
-	if c.ConnectionIdleTimeout != "" {
-		timeout, terr := time.ParseDuration(c.ConnectionIdleTimeout)
-		if terr != nil {
-			return nil, errors.New("invalid 'connection_idle_timeout' value")
-		}
-		connectionIdleTimeout = timeout
-	}
-
 	tb, err := metadata.NewTelemetryBuilder(set)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create telemetry builder: %w", err)
@@ -163,7 +151,7 @@ func (c Config) Build(set component.TelemetrySettings) (operator.Operator, error
 		},
 		resolver:              resolver,
 		maxConnections:        c.MaxConnections,
-		connectionIdleTimeout: connectionIdleTimeout,
+		connectionIdleTimeout: c.ConnectionIdleTimeout,
 		tb:                    tb,
 	}
 

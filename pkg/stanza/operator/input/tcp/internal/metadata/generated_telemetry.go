@@ -23,10 +23,11 @@ func Tracer(settings component.TelemetrySettings) trace.Tracer {
 // TelemetryBuilder provides an interface for components to report telemetry
 // as defined in metadata and user config.
 type TelemetryBuilder struct {
-	meter                     metric.Meter
-	mu                        sync.Mutex
-	registrations             []metric.Registration
-	TCPInputActiveConnections metric.Int64UpDownCounter
+	meter                      metric.Meter
+	mu                         sync.Mutex
+	registrations              []metric.Registration
+	TCPInputActiveConnections  metric.Int64UpDownCounter
+	TCPInputRefusedConnections metric.Int64Counter
 }
 
 // TelemetryBuilderOption applies changes to default builder.
@@ -61,6 +62,12 @@ func NewTelemetryBuilder(settings component.TelemetrySettings, options ...Teleme
 	builder.TCPInputActiveConnections, err = builder.meter.Int64UpDownCounter(
 		"otelcol_tcp_input_active_connections",
 		metric.WithDescription("Number of active TCP connections. [Development]"),
+		metric.WithUnit("1"),
+	)
+	errs = errors.Join(errs, err)
+	builder.TCPInputRefusedConnections, err = builder.meter.Int64Counter(
+		"otelcol_tcp_input_refused_connections",
+		metric.WithDescription("Number of TCP connections refused because the max_connections limit was reached. [Development]"),
 		metric.WithUnit("1"),
 	)
 	errs = errors.Join(errs, err)

@@ -18,9 +18,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/component/componenttest"
 	"go.opentelemetry.io/collector/config/configtls"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata/metricdatatest"
 
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/stanza/entry"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/stanza/operator"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/stanza/operator/input/tcp/internal/metadatatest"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/stanza/testutil"
 )
 
@@ -503,6 +507,66 @@ func TestMaxConnections(t *testing.T) {
 	require.True(t, receivedMessages["message2"], "expected message2 to be received")
 }
 
+func TestMaxConnectionsRefusedConnectionMetric(t *testing.T) {
+	cfg := NewConfigWithID("test_id")
+	cfg.ListenAddress = ":0"
+	cfg.MaxConnections = 1
+
+	testTel := componenttest.NewTelemetry()
+	defer func() {
+		require.NoError(t, testTel.Shutdown(t.Context()))
+	}()
+
+	op, err := cfg.Build(testTel.NewTelemetrySettings())
+	require.NoError(t, err)
+
+	mockOutput := testutil.Operator{}
+	tcpInput := op.(*Input)
+	tcpInput.OutputOperators = []operator.Operator{&mockOutput}
+
+	entryChan := make(chan *entry.Entry, 10)
+	mockOutput.On("Process", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		entryChan <- args.Get(1).(*entry.Entry)
+	}).Return(nil)
+
+	err = tcpInput.Start(testutil.NewUnscopedMockPersister())
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, tcpInput.Stop(), "expected to stop tcp input operator without error")
+	}()
+
+	// First connection is accepted and stays open.
+	conn1, err := net.Dial("tcp", tcpInput.listener.Addr().String())
+	require.NoError(t, err)
+	defer conn1.Close()
+
+	_, err = conn1.Write([]byte("message1\n"))
+	require.NoError(t, err)
+	select {
+	case e := <-entryChan:
+		require.Equal(t, "message1", e.Body)
+	case <-time.After(3 * time.Second):
+		require.FailNow(t, "Timed out waiting for message")
+	}
+
+	// Second connection should be refused since max_connections (1) is already in use.
+	conn2, err := net.Dial("tcp", tcpInput.listener.Addr().String())
+	require.NoError(t, err)
+	defer conn2.Close()
+
+	require.Eventually(t, func() bool {
+		got, err := testTel.GetMetric("otelcol_tcp_input_refused_connections")
+		return err == nil && len(got.Data.(metricdata.Sum[int64]).DataPoints) > 0
+	}, 2*time.Second, 50*time.Millisecond, "expected a refused connection metric to be recorded")
+
+	metadatatest.AssertEqualTCPInputRefusedConnections(t, testTel,
+		[]metricdata.DataPoint[int64]{{
+			Value:      1,
+			Attributes: attribute.NewSet(attribute.String("port", cfg.ListenAddress)),
+		}},
+		metricdatatest.IgnoreTimestamp(), metricdatatest.IgnoreExemplars())
+}
+
 func TestMaxConnectionsZeroUnlimited(t *testing.T) {
 	cfg := NewConfigWithID("test_id")
 	cfg.ListenAddress = ":0"
@@ -554,7 +618,7 @@ func TestConnectionIdleTimeout(t *testing.T) {
 	cfg := NewConfigWithID("test_id")
 	cfg.ListenAddress = ":0"
 	cfg.MaxConnections = 1
-	cfg.ConnectionIdleTimeout = "20ms"
+	cfg.ConnectionIdleTimeout = 20 * time.Millisecond
 
 	set := componenttest.NewNopTelemetrySettings()
 	op, err := cfg.Build(set)
@@ -601,17 +665,17 @@ func TestConnectionIdleTimeout(t *testing.T) {
 	}, 2*time.Second, 50*time.Millisecond, "expected connection count to return to 0 after idle timeout")
 }
 
-func TestDefaultConnectionIdleTimeout(t *testing.T) {
+func TestConnectionIdleTimeoutUnsetDefault(t *testing.T) {
 	cfg := NewConfigWithID("test_id")
 	cfg.ListenAddress = ":0"
-	// Don't set ConnectionIdleTimeout - should default to 1m
+	// Don't set ConnectionIdleTimeout - should default to 0 (no idle timeout)
 
 	set := componenttest.NewNopTelemetrySettings()
 	op, err := cfg.Build(set)
 	require.NoError(t, err)
 
 	tcpInput := op.(*Input)
-	require.Equal(t, DefaultConnectionIdleTimeout, tcpInput.connectionIdleTimeout)
+	require.Equal(t, time.Duration(0), tcpInput.connectionIdleTimeout)
 }
 
 func BenchmarkTCPInput(b *testing.B) {

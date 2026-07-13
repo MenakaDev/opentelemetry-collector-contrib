@@ -20,7 +20,11 @@ func TestSetupTelemetry(t *testing.T) {
 	require.NoError(t, err)
 	defer tb.Shutdown()
 	tb.TCPInputActiveConnections.Add(context.Background(), 1)
+	tb.TCPInputRefusedConnections.Add(context.Background(), 1)
 	AssertEqualTCPInputActiveConnections(t, testTel,
+		[]metricdata.DataPoint[int64]{{Value: 1}},
+		metricdatatest.IgnoreTimestamp())
+	AssertEqualTCPInputRefusedConnections(t, testTel,
 		[]metricdata.DataPoint[int64]{{Value: 1}},
 		metricdatatest.IgnoreTimestamp())
 
