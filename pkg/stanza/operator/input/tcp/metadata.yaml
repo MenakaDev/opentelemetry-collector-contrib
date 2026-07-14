@@ -4,8 +4,6 @@ status:
   class: pkg
   stability:
     beta: [logs]
-  codeowners:
-    active: [andrzej-stencel]
 
 telemetry:
   metrics:
